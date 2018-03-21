@@ -1027,30 +1027,30 @@ void Map3d::collect_adjacent_features(TopoFeature* f) {
 void Map3d::stitch_lifted_features() {
   std::vector<int> ringis, pis;
   for (auto& f : _lsFeatures) {
-    //-- 1. store all touching top level (adjacent + incident)
-    std::vector<TopoFeature*>* lstouching = f->get_adjacent_features();
+    if (f->get_class() != BRIDGE) {
+      //-- 1. store all touching top level (adjacent + incident)
+      std::vector<TopoFeature*>* lstouching = f->get_adjacent_features();
 
-    //-- 2. build the node-column for each vertex
-    // oring
-    Ring2 oring = bg::exterior_ring(*(f->get_Polygon2()));
-    for (int i = 0; i < oring.size(); i++) {
-      std::vector< std::tuple<TopoFeature*, int, int> > star;
-      bool toprocess = false;
-      for (auto& fadj : *lstouching) {
-        ringis.clear();
-        pis.clear();
-        if (fadj->has_point2_(oring[i], ringis, pis) == true) {
-          for (int k = 0; k < ringis.size(); k++) {
-            toprocess = true;
-            star.push_back(std::make_tuple(fadj, ringis[k], pis[k]));
+      //-- 2. build the node-column for each vertex
+      // oring
+      Ring2 oring = bg::exterior_ring(*(f->get_Polygon2()));
+      for (int i = 0; i < oring.size(); i++) {
+        std::vector< std::tuple<TopoFeature*, int, int> > star;
+        bool toprocess = false;
+        for (auto& fadj : *lstouching) {
+          ringis.clear();
+          pis.clear();
+          if (fadj->get_class() != BRIDGE && fadj->has_point2_(oring[i], ringis, pis) == true) {
+            for (int k = 0; k < ringis.size(); k++) {
+              toprocess = true;
+              star.push_back(std::make_tuple(fadj, ringis[k], pis[k]));
+            }
           }
         }
-      }
-      if (toprocess == true) {
-        this->stitch_one_vertex(f, 0, i, star);
-      }
-      else {
-        if (f->get_class() == BUILDING) {
+        if (toprocess == true) {
+          this->stitch_one_vertex(f, 0, i, star);
+        }
+        else if (f->get_class() == BUILDING) {
           f->add_vertical_wall();
           Point2 tmp = f->get_point2(0, i);
           std::string key_bucket = gen_key_bucket(&tmp);
@@ -1060,29 +1060,27 @@ void Map3d::stitch_lifted_features() {
           _nc[key_bucket].push_back(z);
         }
       }
-    }
-    // irings
-    int noiring = 0;
-    for (Ring2& iring : bg::interior_rings(*(f->get_Polygon2()))) {
-      noiring++;
-      for (int i = 0; i < iring.size(); i++) {
-        std::vector< std::tuple<TopoFeature*, int, int> > star;
-        bool toprocess = false;
-        for (auto& fadj : *lstouching) {
-          ringis.clear();
-          pis.clear();
-          if (fadj->has_point2_(iring[i], ringis, pis) == true) {
-            for (int k = 0; k < ringis.size(); k++) {
-              toprocess = true;
-              star.push_back(std::make_tuple(fadj, ringis[k], pis[k]));
+      // irings
+      int noiring = 0;
+      for (Ring2& iring : bg::interior_rings(*(f->get_Polygon2()))) {
+        noiring++;
+        for (int i = 0; i < iring.size(); i++) {
+          std::vector< std::tuple<TopoFeature*, int, int> > star;
+          bool toprocess = false;
+          for (auto& fadj : *lstouching) {
+            ringis.clear();
+            pis.clear();
+            if (fadj->get_class() != BRIDGE && fadj->has_point2_(iring[i], ringis, pis) == true) {
+              for (int k = 0; k < ringis.size(); k++) {
+                toprocess = true;
+                star.push_back(std::make_tuple(fadj, ringis[k], pis[k]));
+              }
             }
           }
-        }
-        if (toprocess == true) {
-          this->stitch_one_vertex(f, noiring, i, star);
-        }
-        else {
-          if (f->get_class() == BUILDING) {
+          if (toprocess == true) {
+            this->stitch_one_vertex(f, noiring, i, star);
+          }
+          else if (f->get_class() == BUILDING) {
             f->add_vertical_wall();
             Point2 tmp = f->get_point2(0, i);
             std::string key_bucket = gen_key_bucket(&tmp);
@@ -1091,6 +1089,35 @@ void Map3d::stitch_lifted_features() {
             z = dynamic_cast<Building*>(f)->get_height_base();
             _nc[key_bucket].push_back(z);
           }
+        }
+      }
+    }
+  }
+
+  //-- handle bridges seperately
+  for (auto& f : _lsFeatures) {
+    if (f->get_class() == BRIDGE) {
+      //-- 1. store all touching top level (adjacent + incident)
+      std::vector<TopoFeature*>* lstouching = f->get_adjacent_features();
+
+      //-- 2. build the node-column for each vertex
+      // oring
+      Ring2 oring = bg::exterior_ring(*(f->get_Polygon2()));
+      for (int i = 0; i < oring.size(); i++) {
+        std::vector< std::tuple<TopoFeature*, int, int> > star;
+        bool toprocess = false;
+        for (auto& fadj : *lstouching) {
+          ringis.clear();
+          pis.clear();
+          if (fadj->has_point2_(oring[i], ringis, pis) == true) {
+            for (int k = 0; k < ringis.size(); k++) {
+              toprocess = true;
+              star.push_back(std::make_tuple(fadj, ringis[k], pis[k]));
+            }
+          }
+        }
+        if (toprocess == true) {
+          stitch_bridges(f, 0, i, std::get<0>(star[0]), std::get<1>(star[0]), std::get<2>(star[0]));
         }
       }
     }
@@ -1318,7 +1345,6 @@ void Map3d::stitch_jumpedge(TopoFeature* f1, int ringi1, int pi1, TopoFeature* f
   }
 }
 
-
 void Map3d::stitch_average(TopoFeature* f1, int ringi1, int pi1, TopoFeature* f2, int ringi2, int pi2) {
   int avgz = (f1->get_vertex_elevation(ringi1, pi1) + f2->get_vertex_elevation(ringi2, pi2)) / 2;
   f1->set_vertex_elevation(ringi1, pi1, avgz);
@@ -1327,6 +1353,38 @@ void Map3d::stitch_average(TopoFeature* f1, int ringi1, int pi1, TopoFeature* f2
   _nc[gen_key_bucket(&p)].push_back(avgz);
 }
 
+void Map3d::stitch_bridges(TopoFeature* f1, int ringi1, int pi1, TopoFeature* f2, int ringi2, int pi2) {
+  //TODO, solve case where a bridge vertex is not connected to another vertex, in that case there is no _nc
+  if (f1->get_id() == "120146899" && pi1 == 9) {
+    std::cout << "break" << std::endl;
+  }
+  Point2 p = f1->get_point2(ringi1, pi1);
+  int z = 0;
+  if (_nc[gen_key_bucket(&p)].size() == 0) {
+    std::cerr << "No heights in nc " + gen_key_bucket(&p) << std::endl;
+    z = f2->get_vertex_elevation(ringi2, pi2);
+    std::cout << "f1z pi1-1: " << f1->get_vertex_elevation(ringi1, pi1 - 1) << " & f2z: " << z << std::endl;
+    if (pi1 > 0 && std::abs(z - f1->get_vertex_elevation(ringi1, pi1-1)) > _threshold_jump_edges) {
+      z = 0;
+    }
+  }
+  else {
+    if (f1->get_top_level() == false) {
+      std::cerr << "_nc " + gen_key_bucket(&p) << std::endl;
+      for (auto nc : _nc[gen_key_bucket(&p)])
+        std::clog << nc << std::endl;
+      z = _nc[gen_key_bucket(&p)].front();
+    }
+    else {
+      std::cerr << "_nc " + gen_key_bucket(&p) << std::endl;
+      for (auto nc : _nc[gen_key_bucket(&p)])
+        std::clog << nc << std::endl;
+      z = _nc[gen_key_bucket(&p)].back();
+    }
+  }
+  f1->set_vertex_elevation(ringi1, pi1, z);
+
+}
 
 void Map3d::add_allowed_las_class(TopoClass c, int i) {
   _las_classes_allowed[c].insert(i);
