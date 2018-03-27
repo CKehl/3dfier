@@ -1470,13 +1470,22 @@ void Map3d::stitch_bridges(TopoFeature* f1, int ringi1, int pi1, TopoFeature* f2
   //  z = refz;
   //}
 
+  Point2 p = f1->get_point2(ringi1, pi1);
+  std::string key_bucket = gen_key_bucket(&p);
   // if f2 is bridge and has no height yet just use refz
+  //TODO: change refz to an average value between two vertices which do have heights (which are connected to another object)
   if (f2->get_class() == BRIDGE && z == 0) {
     z = refz;
+    // add a vertical wall to bridge
+    f1->add_vertical_wall();
+    _nc[key_bucket].push_back(z);
   }
   // this is all other cases
   if (std::abs(z - refz) > _threshold_jump_edges) {
     z = refz;
+    // add a vertical wall to bridge
+    f1->add_vertical_wall();
+    _nc[key_bucket].push_back(z);
   }
 
   f1->set_vertex_elevation(ringi1, pi1, z);
